@@ -6,6 +6,7 @@ from typing import Dict, Optional
 app = FastAPI(title="vLLM GPU Memory Calculator API")
 # General equation:
 # total_memory = model_memory + activation_memory + kv_cache_memory + cuda_overhead
+#https://github.com/RahulSChand/gpu_poor
 
 class ModelArchitecture(BaseModel):
     """Optional model architecture details if known by the user"""
