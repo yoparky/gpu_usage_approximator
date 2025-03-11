@@ -4,50 +4,50 @@ from pydantic import BaseModel
 from typing import Dict, Optional
 
 app = FastAPI(title="vLLM GPU Memory Calculator API")
-# General equation:
-# total_memory = model_memory + activation_memory + kv_cache_memory + cuda_overhead
+# 일반 방정식:
+# 총_메모리 = 모델_메모리 + 활성화_메모리 + kv_캐시_메모리 + cuda_오버헤드
 # https://github.com/RahulSChand/gpu_poor 참조
 
 class ModelArchitecture(BaseModel):
-    """Optional model architecture details if known by the user"""
-    num_layers: Optional[int] = None
-    hidden_size: Optional[int] = None
-    num_heads: Optional[int] = None
-    head_dim: Optional[int] = None
-    intermediate_size: Optional[int] = None  # For FFN layers
+    """사용자가 알고 있는 경우 선택적 모델 아키텍처 세부 정보"""
+    num_layers: Optional[int] = None  # 레이어 수
+    hidden_size: Optional[int] = None  # 히든 크기 
+    num_heads: Optional[int] = None  # 어텐션 헤드 수
+    head_dim: Optional[int] = None  # 헤드 차원
+    intermediate_size: Optional[int] = None  # FFN 레이어용 중간 크기
 
 
 class ModelRequest(BaseModel):
-    model_name: str
-    max_seq_len: int
-    dtype: str = "float16"  # Default to float16
-    kv_cache_dtype: Optional[str] = None  # If None, will use the same as dtype
-    max_batch_size: int = 32
-    max_model_len: Optional[int] = None  # If None, will use max_seq_len
-    gpu_memory_utilization: float = 0.9  # Default GPU memory utilization ratio
-    quantization: Optional[str] = None  # Q4, Q8, or None for full precision
-    params_billions: Optional[float] = None  # Optional override for parameter count
-    architecture: Optional[ModelArchitecture] = None  # Optional model architecture details
+    model_name: str  # 모델 이름
+    max_seq_len: int  # 최대 시퀀스 길이
+    dtype: str = "float16"  # 기본값은 float16
+    kv_cache_dtype: Optional[str] = None  # None인 경우 dtype과 동일하게 사용
+    max_batch_size: int = 32  # 기본 배치 크기
+    max_model_len: Optional[int] = None  # None인 경우 max_seq_len을 사용
+    gpu_memory_utilization: float = 0.9  # 기본 GPU 메모리 활용 비율
+    quantization: Optional[str] = None  # Q4, Q8 또는 None (전체 정밀도)
+    params_billions: Optional[float] = None  # 선택적 매개변수 수 오버라이드
+    architecture: Optional[ModelArchitecture] = None  # 선택적 모델 아키텍처 세부 정보
 
 
 class MemoryEstimation(BaseModel):
-    model_name: str
-    model_params_memory_gb: float
-    activation_memory_gb: float
-    min_kv_cache_memory_gb: float
-    max_kv_cache_memory_gb: float
-    cuda_overhead_gb: float
-    total_min_memory_gb: float
-    total_max_memory_gb: float
-    recommended_memory_gb: float
-    warning: Optional[str] = None
-    components_breakdown: Dict[str, float]
-    architecture_used: Dict[str, int]  # The architecture values used in the calculation
+    model_name: str  # 모델 이름
+    model_params_memory_gb: float  # 모델 파라미터 메모리 (GB)
+    activation_memory_gb: float  # 활성화 메모리 (GB)
+    min_kv_cache_memory_gb: float  # 최소 KV 캐시 메모리 (GB)
+    max_kv_cache_memory_gb: float  # 최대 KV 캐시 메모리 (GB)
+    cuda_overhead_gb: float  # CUDA 오버헤드 (GB)
+    total_min_memory_gb: float  # 최소 총 메모리 (GB)
+    total_max_memory_gb: float  # 최대 총 메모리 (GB)
+    recommended_memory_gb: float  # 권장 메모리 (GB)
+    warning: Optional[str] = None  # 경고 메시지
+    components_breakdown: Dict[str, float]  # 구성 요소 내역
+    architecture_used: Dict[str, int]  # 계산에 사용된 아키텍처 값
 
 
-# Model parameter counts for common models (in billions)
+# 일반적인 모델의 매개변수 수 (십억 단위)
 MODEL_PARAMS = {
-    # LLaMA family (existing entries, plus missing ones)
+    # LLaMA 계열 (기존 항목 및 누락된 항목)
     "meta-llama/Llama-2-7b": 7,
     "meta-llama/Llama-2-13b": 13,
     "meta-llama/Llama-2-70b": 70,
@@ -59,13 +59,13 @@ MODEL_PARAMS = {
     "meta-llama/Llama-3-8b-instruct": 8,
     "meta-llama/Llama-3-70b-instruct": 70,
 
-    # Add Llama 3.2 family (new)
-    "meta-llama/Llama-3.2-1B": 1.23,       # Actual parameter count from model card
-    "meta-llama/Llama-3.2-3B": 3.21,       # Actual parameter count from model card
+    # Llama 3.2 계열 추가 (신규)
+    "meta-llama/Llama-3.2-1B": 1.23,       # 모델 카드에서 가져온 실제 매개변수 수
+    "meta-llama/Llama-3.2-3B": 3.21,       # 모델 카드에서 가져온 실제 매개변수 수
     "meta-llama/Llama-3.2-1B-instruct": 1.23,
     "meta-llama/Llama-3.2-3B-instruct": 3.21,
     
-    # Adding more LLaMA models
+    # 추가 LLaMA 모델
     "meta-llama/Llama-3.1-8b": 8,
     "meta-llama/Llama-3.1-70b": 70,
     "meta-llama/Llama-3.1-405b": 405,
@@ -73,28 +73,28 @@ MODEL_PARAMS = {
     "meta-llama/Llama-3.1-70b-instruct": 70,
     "meta-llama/Llama-3.1-405b-instruct": 405,
     
-    # Mistral family (existing entries)
+    # Mistral 계열 (기존 항목)
     "mistralai/Mistral-7B-v0.1": 7,
-    "mistralai/Mixtral-8x7B-v0.1": 47,  # 8 experts of 7B each, but not all loaded at once
+    "mistralai/Mixtral-8x7B-v0.1": 47,  # 각각 7B인 8개의 전문가, 하지만 모두 동시에 로드되지는 않음
     "mistralai/Mistral-7B-Instruct-v0.1": 7,
     "mistralai/Mixtral-8x7B-Instruct-v0.1": 47,
     
-    # Adding more Mistral models
+    # 추가 Mistral 모델
     "mistralai/Mistral-Large-2-128k": 32,
     "mistralai/Mistral-Large-Instruct-2-128k": 32,
     "mistralai/Mistral-Medium-2-128k": 7,
     "mistralai/Mistral-Medium-Instruct-2-128k": 7,
-    "mistralai/Mixtral-8x22B-v0.1": 176,  # 8 experts of 22B each
+    "mistralai/Mixtral-8x22B-v0.1": 176,  # 각각 22B인 8개의 전문가
     
-    # OpenAI models
-    "openai/gpt-3.5-turbo": 20,  # Estimated
-    "openai/gpt-3.5-turbo-16k": 20,  # Estimated
-    "openai/gpt-4": 1500,  # Estimated
-    "openai/gpt-4-turbo": 1700,  # Estimated
-    "openai/gpt-4o": 1800,  # Estimated
-    "openai/text-davinci-003": 175,  # Estimated
+    # OpenAI 모델
+    "openai/gpt-3.5-turbo": 20,  # 추정치
+    "openai/gpt-3.5-turbo-16k": 20,  # 추정치
+    "openai/gpt-4": 1500,  # 추정치
+    "openai/gpt-4-turbo": 1700,  # 추정치
+    "openai/gpt-4o": 1800,  # 추정치
+    "openai/text-davinci-003": 175,  # 추정치
     
-    # Qwen family
+    # Qwen 계열
     "Qwen/Qwen-1.5-0.5B": 0.5,
     "Qwen/Qwen-1.5-1.8B": 1.8,
     "Qwen/Qwen-1.5-4B": 4,
@@ -104,33 +104,33 @@ MODEL_PARAMS = {
     "Qwen/Qwen-1.5-72B": 72,
     "Qwen/Qwen-1.5-110B": 110,
     
-    # Gemma family
+    # Gemma 계열
     "google/gemma-2b": 2,
     "google/gemma-7b": 7,
     "google/gemma-2b-instruct": 2,
     "google/gemma-7b-instruct": 7,
     
-    # Claude family (Anthropic)
-    "anthropic/claude-3-opus": 180,  # Estimated
-    "anthropic/claude-3-sonnet": 100,  # Estimated
-    "anthropic/claude-3-haiku": 40,  # Estimated
+    # Claude 계열 (Anthropic)
+    "anthropic/claude-3-opus": 180,  # 추정치
+    "anthropic/claude-3-sonnet": 100,  # 추정치
+    "anthropic/claude-3-haiku": 40,  # 추정치
     
-    # Gemini family
-    "google/gemini-nano": 3.25,  # Estimated
-    "google/gemini-pro": 50,  # Estimated
-    "google/gemini-ultra": 500,  # Estimated
+    # Gemini 계열
+    "google/gemini-nano": 3.25,  # 추정치
+    "google/gemini-pro": 50,  # 추정치
+    "google/gemini-ultra": 500,  # 추정치
     
-    # Yi family
+    # Yi 계열
     "01-ai/Yi-6B": 6,
     "01-ai/Yi-9B": 9,
     "01-ai/Yi-34B": 34,
     
-    # Falcon family
+    # Falcon 계열
     "tiiuae/falcon-7b": 7,
     "tiiuae/falcon-40b": 40,
     "tiiuae/falcon-180b": 180,
     
-    # Other existing models
+    # 기타 기존 모델
     "stabilityai/stablelm-tuned-alpha-7b": 7,
     "mosaicml/mpt-7b": 7,
     "mosaicml/mpt-30b": 30,
@@ -138,13 +138,13 @@ MODEL_PARAMS = {
     "Together/falcon-40b-instruct": 40,
     "openchat/openchat-3.5": 7,
     
-    # Default fallback
-    "unknown": 0  # Will be estimated based on name or set by user
+    # 기본 폴백
+    "unknown": 0  # 이름을 기반으로 추정되거나 사용자가 설정
 }
 
-# Architecture details for known models
+# 알려진 모델의 아키텍처 세부 정보
 MODEL_ARCHITECTURES = {
-    # LLaMA-2 family
+    # LLaMA-2 계열
     "meta-llama/Llama-2-7b": {
         "num_layers": 32,
         "hidden_size": 4096,
@@ -166,27 +166,22 @@ MODEL_ARCHITECTURES = {
         "head_dim": 128,
         "intermediate_size": 28672
     },
-    # llama 계통 3
-    # Add Llama 3.2 family (new)
+    # Llama 3.2 계열 추가 (신규)
     "meta-llama/Llama-3.2-1B": {
-        "num_layers": 24,           # Based on typical architecture scaling
-        "hidden_size": 2048,        # Based on typical architecture scaling
-        "num_heads": 16,            # Common head configuration for this size
-        "head_dim": 128,            # Maintained from Llama family
-        "intermediate_size": 5632   # Based on ~2.75x hidden_size ratio
+        "num_layers": 24,           # 일반적인 아키텍처 스케일링 기반
+        "hidden_size": 2048,        # 일반적인 아키텍처 스케일링 기반
+        "num_heads": 16,            # 이 크기에 대한 일반적인 헤드 구성
+        "head_dim": 128,            # Llama 계열에서 유지됨
+        "intermediate_size": 5632   # hidden_size의 약 2.75배 비율 기반
     },
     "meta-llama/Llama-3.2-3B": {
-        "num_layers": 26,           # Based on typical architecture scaling
-        "hidden_size": 3072,        # Based on typical architecture scaling
-        "num_heads": 24,            # Common head configuration for this size
-        "head_dim": 128,            # Maintained from Llama family
-        "intermediate_size": 8448   # Based on ~2.75x hidden_size ratio
+        "num_layers": 26,           # 일반적인 아키텍처 스케일링 기반
+        "hidden_size": 3072,        # 일반적인 아키텍처 스케일링 기반
+        "num_heads": 24,            # 이 크기에 대한 일반적인 헤드 구성
+        "head_dim": 128,            # Llama 계열에서 유지됨
+        "intermediate_size": 8448   # hidden_size의 약 2.75배 비율 기반
     },
     
-    # openapi 계통
-    # Qwen 계통 1.5
-    # Gemma 계통
-
     # Mistral-7B
     "mistralai/Mistral-7B-v0.1": {
         "num_layers": 32,
@@ -196,36 +191,36 @@ MODEL_ARCHITECTURES = {
         "intermediate_size": 14336
     }
     
-    # Add more known model architectures as needed
+    # 필요한 경우 더 많은 알려진 모델 아키텍처 추가
 }
 
 
-# Memory sizes for different dtypes in bytes
+# 다양한 dtype의 메모리 크기 (바이트 단위)
 DTYPE_SIZES = {
     "float32": 4,
     "float16": 2,
     "bfloat16": 2,
     "int8": 1,
-    "int4": 0.5,  # 4 bits = 0.5 bytes
+    "int4": 0.5,  # 4비트 = 0.5 바이트
 }
 
 
-# Quantization factors (how much smaller the model becomes)
+# 양자화 요소 (모델이 얼마나 작아지는지)
 QUANTIZATION_FACTORS = {
-    "Q8": 2,  # Model size is divided by 2 for Q8 quantization
-    "Q4": 4,  # Model size is divided by 4 for Q4 quantization
-    None: 1   # No quantization, keep original size
+    "Q8": 2,  # Q8 양자화의 경우 모델 크기가 2로 나눠짐
+    "Q4": 4,  # Q4 양자화의 경우 모델 크기가 4로 나눠짐
+    None: 1   # 양자화 없음, 원래 크기 유지
 }
 
 
 def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
-    """Estimate model architecture details based on parameter count."""
-    # These are approximate heuristics based on common model architectures
-    num_layers = int(2 * math.log2(params_billions * 1e9 / 125)) + 8
-    hidden_size = int(math.sqrt(params_billions * 1e9 / (num_layers * 4)))
-    num_heads = max(8, hidden_size // 128)
-    head_dim = hidden_size // num_heads
-    intermediate_size = hidden_size * 4  # Common ratio for FFN intermediate size
+    """매개변수 수를 기반으로 모델 아키텍처 세부 정보를 추정합니다."""
+    # 일반적인 모델 아키텍처를 기반으로 한 근사 휴리스틱
+    num_layers = int(2 * math.log2(params_billions * 1e9 / 125)) + 8  # 레이어 수 추정
+    hidden_size = int(math.sqrt(params_billions * 1e9 / (num_layers * 4)))  # 히든 크기 추정
+    num_heads = max(8, hidden_size // 128)  # 헤드 수 추정
+    head_dim = hidden_size // num_heads  # 헤드 차원 계산
+    intermediate_size = hidden_size * 4  # FFN 중간 크기는 일반적으로 hidden_size의 4배
     
     return {
         "num_layers": num_layers,
@@ -237,53 +232,53 @@ def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
 
 
 def estimate_params_from_name(model_name: str) -> float:
-    """Estimate parameter count from model name if not in our database."""
-    # Try to find numbers in the model name (like 7b, 13b, etc.)
+    """데이터베이스에 없는 경우 모델 이름에서 매개변수 수를 추정합니다."""
+    # 모델 이름에서 숫자 찾기 (예: 7b, 13b 등)
     import re
     numbers = re.findall(r'(\d+)b', model_name.lower())
     if numbers:
-        # Take the largest number followed by 'b' as parameter count in billions
+        # 'b'가 뒤에 오는 가장 큰 숫자를 매개변수 수(십억 단위)로 취급
         return max([float(num) for num in numbers])
-    return 7  # Default to 7B if we can't determine
+    return 7  # 결정할 수 없는 경우 기본값 7B 사용
 
 
 def get_model_params_count(model_name: str, params_billions: Optional[float] = None) -> float:
-    """Get parameter count for a model in billions."""
-    # If user provided parameter count, use it
+    """모델의 매개변수 수를 십억 단위로 가져옵니다."""
+    # 사용자가 매개변수 수를 제공한 경우 사용
     if params_billions is not None:
         return params_billions
     
-    # Otherwise check our database
+    # 그렇지 않으면 데이터베이스 확인
     if model_name in MODEL_PARAMS:
         return MODEL_PARAMS[model_name]
     
-    # Try to find the model by its short name
+    # 짧은 이름으로 모델 찾기 시도
     short_name = model_name.split('/')[-1].lower()
     for known_model, params in MODEL_PARAMS.items():
         if short_name in known_model.lower():
             return params
     
-    # If still not found, try to estimate from the name
+    # 여전히 찾을 수 없는 경우 이름에서 추정 시도
     return estimate_params_from_name(model_name)
 
 
 def get_model_architecture(model_name: str, params_billions: float, 
                           user_arch: Optional[ModelArchitecture] = None) -> Dict[str, int]:
     """
-    Get model architecture details, with priority:
-    1. User-provided values
-    2. Known architecture from database
-    3. Estimated values based on parameter count
+    모델 아키텍처 세부 정보를 가져옵니다. 우선순위:
+    1. 사용자 제공 값
+    2. 데이터베이스의 알려진 아키텍처
+    3. 매개변수 수를 기반으로 한 추정 값
     """
-    # Start with estimated architecture
+    # 추정된 아키텍처로 시작
     arch = estimate_model_architecture(params_billions)
     
-    # Update with known architecture if available
+    # 가능한 경우 알려진 아키텍처로 업데이트
     if model_name in MODEL_ARCHITECTURES:
         for key, value in MODEL_ARCHITECTURES[model_name].items():
             arch[key] = value
     
-    # Update with any user-provided architecture details
+    # 사용자 제공 아키텍처 세부 정보로 업데이트
     if user_arch:
         user_arch_dict = user_arch.dict(exclude_unset=True, exclude_none=True)
         for key, value in user_arch_dict.items():
@@ -296,17 +291,17 @@ def get_model_architecture(model_name: str, params_billions: float,
 def calculate_model_memory(model_name: str, dtype: str, 
                           quantization: Optional[str] = None,
                           params_billions: Optional[float] = None) -> Dict[str, float]:
-    """Calculate memory needed for model parameters in GB."""
-    # Get parameter count (using user override if provided)
+    """모델 매개변수에 필요한 메모리를 GB 단위로 계산합니다."""
+    # 매개변수 수 가져오기 (사용자가 제공한 값 사용)
     params_billions = get_model_params_count(model_name, params_billions)
     bytes_per_param = DTYPE_SIZES[dtype]
     
-    # Apply quantization factor if specified
+    # 양자화 요소 적용 (지정된 경우)
     quant_factor = QUANTIZATION_FACTORS.get(quantization, 1)
     
-    # Model size in GB (with slight overhead)
+    # 모델 크기를 GB 단위로 계산 (약간의 오버헤드 포함)
     model_size_bytes = params_billions * 1e9 * bytes_per_param
-    model_size_gb = model_size_bytes / (1024**3) / quant_factor * 1.05  # 5% overhead for model tensors
+    model_size_gb = model_size_bytes / (1024**3) / quant_factor * 1.05  # 모델 텐서를 위한 5% 오버헤드
     
     return {
         "params_billions": params_billions,
@@ -319,28 +314,29 @@ def calculate_activation_memory(arch: Dict[str, int],
                                max_seq_len: int, 
                                dtype: str) -> float:
     """
-    Calculate activation memory for inference.
-    This accounts for both hidden_size and intermediate_size activations.
+    추론을 위한 활성화 메모리를 계산합니다.
+    hidden_size와 intermediate_size 활성화를 모두 고려합니다.
     """
     num_layers = arch["num_layers"]
     hidden_size = arch["hidden_size"]
     intermediate_size = arch["intermediate_size"]
     
-    # Bytes per value based on dtype
+    # dtype 기반 바이트 단위 값
     bytes_per_value = DTYPE_SIZES[dtype]
-    # Assume 5 activations per layer
-    # For hidden_size activations (query, key, value, attention output, etc.)
-    # Typically 3 activations per layer use hidden_size
+    
+    # 레이어당 5개의 활성화 가정
+    # hidden_size 활성화(쿼리, 키, 값, 어텐션 출력 등)의 경우
+    # 일반적으로 레이어당 3개의 활성화가 hidden_size 사용
     hidden_activation_bytes = 3 * max_batch_size * max_seq_len * hidden_size * bytes_per_value
     
-    # For intermediate_size activations (FFN intermediate outputs)
-    # Typically 2 activations per layer use intermediate_size
+    # intermediate_size 활성화(FFN 중간 출력)의 경우
+    # 일반적으로 레이어당 2개의 활성화가 intermediate_size 사용
     intermediate_activation_bytes = 2 * max_batch_size * max_seq_len * intermediate_size * bytes_per_value
     
-    # Total activation memory across all layers
+    # 모든 레이어에 걸친 총 활성화 메모리
     total_activation_bytes = num_layers * (hidden_activation_bytes + intermediate_activation_bytes)
     
-    # Convert to GB
+    # GB 단위로 변환
     activation_memory_gb = total_activation_bytes / (1024**3)
     
     return activation_memory_gb
@@ -352,7 +348,7 @@ def calculate_kv_cache_memory(arch: Dict[str, int],
                              kv_cache_dtype: str,
                              max_model_len: Optional[int] = None) -> Dict[str, float]:
     """
-    Calculate the KV cache memory requirements with PagedAttention.
+    PagedAttention을 사용한 KV 캐시 메모리 요구 사항을 계산합니다.
     """
     if max_model_len is None:
         max_model_len = max_seq_len
@@ -360,25 +356,25 @@ def calculate_kv_cache_memory(arch: Dict[str, int],
     num_layers = arch["num_layers"]
     hidden_size = arch["hidden_size"]
     
-    # Calculate KV cache size
+    # KV 캐시 크기 계산
     bytes_per_token = DTYPE_SIZES[kv_cache_dtype]
     
-    # In PagedAttention, memory is allocated in blocks
-    # Each block typically holds 16 tokens for efficient memory management
+    # PagedAttention에서 메모리는 블록 단위로 할당됨
+    # 각 블록은 일반적으로 효율적인 메모리 관리를 위해 16개의 토큰을 보유
     block_size = 16
     num_blocks_per_seq = math.ceil(max_model_len / block_size)
     
-    # Key + Value cache per layer per token
-    # vLLM only needs to store K and V, not Q (query) vectors
-    kv_cache_per_token = 2 * hidden_size * bytes_per_token  # 2 for K and V
+    # 레이어당 토큰당 키 + 값 캐시
+    # vLLM은 Q(쿼리) 벡터가 아닌 K와 V만 저장하면 됨
+    kv_cache_per_token = 2 * hidden_size * bytes_per_token  # K와 V에 대해 2
     
-    # Total KV cache size for minimum allocation (one block per sequence)
+    # 최소 할당을 위한 총 KV 캐시 크기 (시퀀스당 하나의 블록)
     min_kv_cache_size_bytes = num_layers * max_batch_size * kv_cache_per_token * block_size
     
-    # Total KV cache size for maximum allocation (all blocks per sequence)
+    # 최대 할당을 위한 총 KV 캐시 크기 (시퀀스당 모든 블록)
     max_kv_cache_size_bytes = num_layers * max_batch_size * kv_cache_per_token * max_model_len
     
-    # Convert to GB
+    # GB 단위로 변환
     min_kv_cache_size_gb = min_kv_cache_size_bytes / (1024**3)
     max_kv_cache_size_gb = max_kv_cache_size_bytes / (1024**3)
     
@@ -391,40 +387,40 @@ def calculate_kv_cache_memory(arch: Dict[str, int],
 @app.post("/estimate-gpu-memory", response_model=MemoryEstimation)
 def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     """
-    Estimate GPU memory usage for serving a specific model with vLLM.
+    vLLM으로 특정 모델을 서빙하기 위한 GPU 메모리 사용량을 추정합니다.
     
-    This takes into account:
-    1. Model parameters memory
-    2. Activation memory for inference
-    3. KV cache memory (with PagedAttention)
-    4. CUDA context and other overhead
+    이는 다음을 고려합니다:
+    1. 모델 매개변수 메모리
+    2. 추론을 위한 활성화 메모리
+    3. KV 캐시 메모리 (PagedAttention 사용)
+    4. CUDA 컨텍스트 및 기타 오버헤드
     """
-    # Add at start of function
+    # 함수 시작 부분에 추가
     if request.max_seq_len <= 0:
-        raise HTTPException(status_code=400, detail="max_seq_len must be positive")
+        raise HTTPException(status_code=400, detail="max_seq_len은 양수여야 합니다")
     if request.max_batch_size <= 0:
-        raise HTTPException(status_code=400, detail="max_batch_size must be positive")
+        raise HTTPException(status_code=400, detail="max_batch_size는 양수여야 합니다")
     if not (0 < request.gpu_memory_utilization <= 1):
-        raise HTTPException(status_code=400, detail="gpu_memory_utilization must be between 0 and 1")
+        raise HTTPException(status_code=400, detail="gpu_memory_utilization은 0과 1 사이여야 합니다")
     
-    # Validate and set default values
+    # 기본값 검증 및 설정
     if request.kv_cache_dtype is None:
         request.kv_cache_dtype = request.dtype
     
     if request.max_model_len is None:
         request.max_model_len = request.max_seq_len
     
-    # Ensure dtype values are valid
+    # dtype 값이 유효한지 확인
     if request.dtype not in DTYPE_SIZES:
-        raise HTTPException(status_code=400, detail=f"Unsupported dtype: {request.dtype}. Supported types: {list(DTYPE_SIZES.keys())}")
+        raise HTTPException(status_code=400, detail=f"지원되지 않는 dtype: {request.dtype}. 지원되는 유형: {list(DTYPE_SIZES.keys())}")
     
     if request.kv_cache_dtype not in DTYPE_SIZES:
-        raise HTTPException(status_code=400, detail=f"Unsupported KV cache dtype: {request.kv_cache_dtype}. Supported types: {list(DTYPE_SIZES.keys())}")
+        raise HTTPException(status_code=400, detail=f"지원되지 않는 KV 캐시 dtype: {request.kv_cache_dtype}. 지원되는 유형: {list(DTYPE_SIZES.keys())}")
     
     if request.quantization is not None and request.quantization not in QUANTIZATION_FACTORS:
-        raise HTTPException(status_code=400, detail=f"Unsupported quantization: {request.quantization}. Supported values: Q4, Q8, None")
+        raise HTTPException(status_code=400, detail=f"지원되지 않는 양자화: {request.quantization}. 지원되는 값: Q4, Q8, None")
     
-    # Calculate model parameters memory
+    # 모델 매개변수 메모리 계산
     model_info = calculate_model_memory(
         request.model_name, 
         request.dtype, 
@@ -435,14 +431,14 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     model_params_memory_gb = model_info["model_size_gb"]
     params_billions = model_info["params_billions"]
     
-    # Get model architecture (prioritizing user-provided values)
+    # 모델 아키텍처 가져오기 (사용자 제공 값 우선)
     architecture = get_model_architecture(
         request.model_name,
         params_billions,
         request.architecture
     )
     
-    # Calculate activation memory
+    # 활성화 메모리 계산
     activation_memory_gb = calculate_activation_memory(
         architecture,
         request.max_batch_size,
@@ -450,7 +446,7 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
         request.dtype
     )
     
-    # Calculate KV cache memory (min and max)
+    # KV 캐시 메모리 계산 (최소 및 최대)
     kv_cache_memory = calculate_kv_cache_memory(
         architecture,
         request.max_seq_len,
@@ -459,14 +455,14 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
         request.max_model_len
     )
     
-    # CUDA context and other overhead
-    cuda_overhead_gb = 0.75  # 750 MB as suggested
+    # CUDA 컨텍스트 및 기타 오버헤드
+    cuda_overhead_gb = 0.75  # 권장 750 MB
     
-    # Additional overhead for quantization libraries if using quantization
+    # 양자화를 사용하는 경우 추가 오버헤드
     if request.quantization:
-        cuda_overhead_gb += 0.25  # Add 250 MB more for quantization libraries
+        cuda_overhead_gb += 0.25  # 양자화 라이브러리를 위해 250 MB 추가
     
-    # Calculate total memory requirements
+    # 총 메모리 요구 사항 계산
     total_min_memory_gb = (
         model_params_memory_gb + 
         activation_memory_gb + 
@@ -481,10 +477,10 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
         cuda_overhead_gb
     )
     
-    # Calculate recommended memory with the specified utilization ratio
+    # 지정된 활용 비율로 권장 메모리 계산
     recommended_memory_gb = total_max_memory_gb / request.gpu_memory_utilization
     
-    # Round values for better readability while preserving 2 decimal places for precision
+    # 더 나은 가독성을 위해 값을 반올림하면서 2자리 소수점 정밀도 유지
     model_params_memory_gb = round(model_params_memory_gb, 2)
     activation_memory_gb = round(activation_memory_gb, 2)
     min_kv_cache_memory_gb = round(kv_cache_memory["min_kv_cache_memory_gb"], 2)
@@ -493,7 +489,7 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     total_max_memory_gb = round(total_max_memory_gb, 2)
     recommended_memory_gb = round(recommended_memory_gb, 2)
     
-    # Detailed breakdown of memory components
+    # 메모리 구성 요소의 상세 내역
     components_breakdown = {
         "model_params": model_params_memory_gb,
         "activation": activation_memory_gb,
@@ -502,10 +498,10 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
         "cuda_overhead": cuda_overhead_gb
     }
     
-    # Create a warning if the model seems unusually large
+    # 모델이 비정상적으로 큰 경우 경고 생성
     warning = None
     if recommended_memory_gb > 80:
-        warning = "This model may require multiple GPUs or a high-end GPU with sufficient memory."
+        warning = "이 모델은 여러 개의 GPU 또는 충분한 메모리가 있는 고급 GPU가 필요할 수 있습니다."
     
     return MemoryEstimation(
         model_name=request.model_name,
@@ -523,7 +519,7 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     )
 
 
-# Additional endpoint to get known model architectures
+# 알려진 모델 아키텍처를 가져오는 추가 엔드포인트
 @app.get("/known-architectures")
 def get_known_architectures():
     return {
@@ -531,21 +527,21 @@ def get_known_architectures():
     }
 
 
-# Example usage documentation endpoint
+# 사용 예시 문서화 엔드포인트
 @app.get("/")
 def read_root():
     return {
-        "info": "vLLM GPU Memory Calculator API",
-        "usage": "POST to /estimate-gpu-memory with model details",
+        "info": "vLLM GPU 메모리 계산기 API",
+        "usage": "모델 세부 정보와 함께 /estimate-gpu-memory로 POST 요청",
         "example_request": {
             "model_name": "meta-llama/Llama-2-7b",
             "max_seq_len": 2048,
             "dtype": "float16",
             "max_batch_size": 32,
             "gpu_memory_utilization": 0.9,
-            "quantization": None,  # Optional: "Q4" or "Q8" for quantized models
-            "params_billions": None,  # Optional: Override parameter count if known
-            "architecture": {  # Optional: Provide known architecture details
+            "quantization": None,  # 선택 사항: 양자화 모델의 경우 "Q4" 또는 "Q8"
+            "params_billions": None,  # 선택 사항: 알려진 경우 매개변수 수 오버라이드
+            "architecture": {  # 선택 사항: 알려진 모델 아키텍처 세부 정보 제공
                 "num_layers": 32,
                 "hidden_size": 4096,
                 "num_heads": 32,
@@ -554,10 +550,10 @@ def read_root():
             }
         },
         "memory_components": {
-            "model_params": "Memory for model weights",
-            "activation": "Memory for intermediate activations during inference",
-            "kv_cache": "Memory for key-value cache (min and max with PagedAttention)",
-            "cuda_overhead": "Memory for CUDA context and additional libraries"
+            "model_params": "모델 가중치를 위한 메모리",
+            "activation": "추론 중 중간 활성화를 위한 메모리",
+            "kv_cache": "키-값 캐시를 위한 메모리 (PagedAttention 사용 시 최소 및 최대)",
+            "cuda_overhead": "CUDA 컨텍스트 및 추가 라이브러리를 위한 메모리"
         }
     }
 
