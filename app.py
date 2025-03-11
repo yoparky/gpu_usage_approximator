@@ -6,7 +6,7 @@ from typing import Dict, Optional
 app = FastAPI(title="vLLM GPU Memory Calculator API")
 # General equation:
 # total_memory = model_memory + activation_memory + kv_cache_memory + cuda_overhead
-#https://github.com/RahulSChand/gpu_poor
+# https://github.com/RahulSChand/gpu_poor 참조
 
 class ModelArchitecture(BaseModel):
     """Optional model architecture details if known by the user"""
@@ -47,7 +47,7 @@ class MemoryEstimation(BaseModel):
 
 # Model parameter counts for common models (in billions)
 MODEL_PARAMS = {
-    # LLaMA family
+    # LLaMA family (existing entries, plus missing ones)
     "meta-llama/Llama-2-7b": 7,
     "meta-llama/Llama-2-13b": 13,
     "meta-llama/Llama-2-70b": 70,
@@ -58,17 +58,80 @@ MODEL_PARAMS = {
     "meta-llama/Llama-3-70b": 70,
     "meta-llama/Llama-3-8b-instruct": 8,
     "meta-llama/Llama-3-70b-instruct": 70,
+
+    # Add Llama 3.2 family (new)
+    "meta-llama/Llama-3.2-1B": 1.23,       # Actual parameter count from model card
+    "meta-llama/Llama-3.2-3B": 3.21,       # Actual parameter count from model card
+    "meta-llama/Llama-3.2-1B-instruct": 1.23,
+    "meta-llama/Llama-3.2-3B-instruct": 3.21,
     
-    # Mistral family
+    # Adding more LLaMA models
+    "meta-llama/Llama-3.1-8b": 8,
+    "meta-llama/Llama-3.1-70b": 70,
+    "meta-llama/Llama-3.1-405b": 405,
+    "meta-llama/Llama-3.1-8b-instruct": 8,
+    "meta-llama/Llama-3.1-70b-instruct": 70,
+    "meta-llama/Llama-3.1-405b-instruct": 405,
+    
+    # Mistral family (existing entries)
     "mistralai/Mistral-7B-v0.1": 7,
     "mistralai/Mixtral-8x7B-v0.1": 47,  # 8 experts of 7B each, but not all loaded at once
     "mistralai/Mistral-7B-Instruct-v0.1": 7,
     "mistralai/Mixtral-8x7B-Instruct-v0.1": 47,
     
-    # Other popular models
-    "stabilityai/stablelm-tuned-alpha-7b": 7,
+    # Adding more Mistral models
+    "mistralai/Mistral-Large-2-128k": 32,
+    "mistralai/Mistral-Large-Instruct-2-128k": 32,
+    "mistralai/Mistral-Medium-2-128k": 7,
+    "mistralai/Mistral-Medium-Instruct-2-128k": 7,
+    "mistralai/Mixtral-8x22B-v0.1": 176,  # 8 experts of 22B each
+    
+    # OpenAI models
+    "openai/gpt-3.5-turbo": 20,  # Estimated
+    "openai/gpt-3.5-turbo-16k": 20,  # Estimated
+    "openai/gpt-4": 1500,  # Estimated
+    "openai/gpt-4-turbo": 1700,  # Estimated
+    "openai/gpt-4o": 1800,  # Estimated
+    "openai/text-davinci-003": 175,  # Estimated
+    
+    # Qwen family
+    "Qwen/Qwen-1.5-0.5B": 0.5,
+    "Qwen/Qwen-1.5-1.8B": 1.8,
+    "Qwen/Qwen-1.5-4B": 4,
+    "Qwen/Qwen-1.5-7B": 7,
+    "Qwen/Qwen-1.5-14B": 14,
+    "Qwen/Qwen-1.5-32B": 32,
+    "Qwen/Qwen-1.5-72B": 72,
+    "Qwen/Qwen-1.5-110B": 110,
+    
+    # Gemma family
+    "google/gemma-2b": 2,
+    "google/gemma-7b": 7,
+    "google/gemma-2b-instruct": 2,
+    "google/gemma-7b-instruct": 7,
+    
+    # Claude family (Anthropic)
+    "anthropic/claude-3-opus": 180,  # Estimated
+    "anthropic/claude-3-sonnet": 100,  # Estimated
+    "anthropic/claude-3-haiku": 40,  # Estimated
+    
+    # Gemini family
+    "google/gemini-nano": 3.25,  # Estimated
+    "google/gemini-pro": 50,  # Estimated
+    "google/gemini-ultra": 500,  # Estimated
+    
+    # Yi family
+    "01-ai/Yi-6B": 6,
+    "01-ai/Yi-9B": 9,
+    "01-ai/Yi-34B": 34,
+    
+    # Falcon family
     "tiiuae/falcon-7b": 7,
     "tiiuae/falcon-40b": 40,
+    "tiiuae/falcon-180b": 180,
+    
+    # Other existing models
+    "stabilityai/stablelm-tuned-alpha-7b": 7,
     "mosaicml/mpt-7b": 7,
     "mosaicml/mpt-30b": 30,
     "EleutherAI/pythia-12b": 12,
@@ -78,7 +141,6 @@ MODEL_PARAMS = {
     # Default fallback
     "unknown": 0  # Will be estimated based on name or set by user
 }
-
 
 # Architecture details for known models
 MODEL_ARCHITECTURES = {
@@ -104,7 +166,27 @@ MODEL_ARCHITECTURES = {
         "head_dim": 128,
         "intermediate_size": 28672
     },
+    # llama 계통 3
+    # Add Llama 3.2 family (new)
+    "meta-llama/Llama-3.2-1B": {
+        "num_layers": 24,           # Based on typical architecture scaling
+        "hidden_size": 2048,        # Based on typical architecture scaling
+        "num_heads": 16,            # Common head configuration for this size
+        "head_dim": 128,            # Maintained from Llama family
+        "intermediate_size": 5632   # Based on ~2.75x hidden_size ratio
+    },
+    "meta-llama/Llama-3.2-3B": {
+        "num_layers": 26,           # Based on typical architecture scaling
+        "hidden_size": 3072,        # Based on typical architecture scaling
+        "num_heads": 24,            # Common head configuration for this size
+        "head_dim": 128,            # Maintained from Llama family
+        "intermediate_size": 8448   # Based on ~2.75x hidden_size ratio
+    },
     
+    # openapi 계통
+    # Qwen 계통 1.5
+    # Gemma 계통
+
     # Mistral-7B
     "mistralai/Mistral-7B-v0.1": {
         "num_layers": 32,
@@ -238,21 +320,25 @@ def calculate_activation_memory(arch: Dict[str, int],
                                dtype: str) -> float:
     """
     Calculate activation memory for inference.
-    This is much smaller than training activation memory but still significant.
+    This accounts for both hidden_size and intermediate_size activations.
     """
     num_layers = arch["num_layers"]
     hidden_size = arch["hidden_size"]
+    intermediate_size = arch["intermediate_size"]
     
-    # For inference, we need to store fewer activations than training
-    # Typically ~5 intermediate representations per layer during inference
-    num_activations_per_layer = 5
-    
-    # Size of each activation in bytes (batch_size × seq_len × hidden_size × bytes_per_value)
+    # Bytes per value based on dtype
     bytes_per_value = DTYPE_SIZES[dtype]
-    activation_size_bytes = max_batch_size * max_seq_len * hidden_size * bytes_per_value
+    # Assume 5 activations per layer
+    # For hidden_size activations (query, key, value, attention output, etc.)
+    # Typically 3 activations per layer use hidden_size
+    hidden_activation_bytes = 3 * max_batch_size * max_seq_len * hidden_size * bytes_per_value
+    
+    # For intermediate_size activations (FFN intermediate outputs)
+    # Typically 2 activations per layer use intermediate_size
+    intermediate_activation_bytes = 2 * max_batch_size * max_seq_len * intermediate_size * bytes_per_value
     
     # Total activation memory across all layers
-    total_activation_bytes = num_layers * num_activations_per_layer * activation_size_bytes
+    total_activation_bytes = num_layers * (hidden_activation_bytes + intermediate_activation_bytes)
     
     # Convert to GB
     activation_memory_gb = total_activation_bytes / (1024**3)
@@ -374,11 +460,11 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     )
     
     # CUDA context and other overhead
-    cuda_overhead_gb = 0.65  # 650 MB as suggested
+    cuda_overhead_gb = 0.75  # 750 MB as suggested
     
     # Additional overhead for quantization libraries if using quantization
     if request.quantization:
-        cuda_overhead_gb += 0.35  # Add 350 MB more for quantization libraries
+        cuda_overhead_gb += 0.25  # Add 250 MB more for quantization libraries
     
     # Calculate total memory requirements
     total_min_memory_gb = (
