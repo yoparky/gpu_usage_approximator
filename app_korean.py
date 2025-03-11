@@ -215,26 +215,24 @@ QUANTIZATION_FACTORS = {
 
 def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
     """
-    Estimate model architecture details based on parameter count using a more accurate
-    approach that combines range-based estimation with quadratic equation solving.
+    매개변수 수를 기반으로 모델 아키텍처 세부 정보를 추정합니다.
+    범위 기반 추정과 이차 방정식 해결을 결합한 접근 방식을 사용하여 더 정확하게 계산합니다.
+    이는 실제 모델 설계 방식과 일치하며, 특히 작은 모델에서 더 현실적인 아키텍처 매개변수를 생성합니다.
     
-    This matches how models are actually designed in practice, producing more realistic
-    architecture parameters, especially for smaller models.
-    
-    Args:
-        params_billions: Model size in billions of parameters
+    매개변수:
+        params_billions: 모델 크기 (매개변수 수, 십억 단위)
         
-    Returns:
-        Dictionary with estimated architecture details
+    반환값:
+        추정된 아키텍처 세부 정보가 있는 딕셔너리
     """
-    # Step 1: Determine baseline architecture parameters based on model size ranges
-    # These values come from analyzing real-world model architectures
+    # 1단계: 모델 크기 범위를 기반으로 기본 아키텍처 매개변수 결정
+    # 이 값들은 실제 모델 아키텍처 분석을 기반으로 합니다
     if params_billions < 3:
         num_layers = 24
         num_heads = 16
         vocab = 32000
     elif params_billions < 7:
-        num_layers = 26      # Appropriate for models like Llama-3.2-3B
+        num_layers = 26  # Llama-3.2-3B와 같은 모델에 적합
         num_heads = 24
         vocab = 32000
     elif params_billions < 10:
@@ -254,31 +252,31 @@ def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
         num_heads = 64
         vocab = 32000
     
-    # Step 2: Solve quadratic equation to find the hidden dimension
-    # The equation models how parameters are distributed in transformer architectures:
+    # 2단계: 히든 차원을 찾기 위한 이차 방정식 해결
+    # 이 방정식은 트랜스포머 아키텍처에서 매개변수가 어떻게 분포되는지 모델링합니다:
     # vocab*h*2 + numLayers*4*h*h + numLayers*3*4*h*h = params_billions*10^9
     
-    # Rearrange to standard form: Ah² + Bh + C = 0
-    A = num_layers * 4 + num_layers * 12  # Coefficient of h²
-    B = 2 * vocab                        # Coefficient of h (input & output embeddings)
-    C = -1 * params_billions * 1e9       # Constant term
+    # 표준 형식으로 정리: Ah² + Bh + C = 0
+    A = num_layers * 4 + num_layers * 12  # h²의 계수
+    B = 2 * vocab  # h의 계수 (입력 및 출력 임베딩)
+    C = -1 * params_billions * 1e9  # 상수항
     
-    # Apply quadratic formula to solve for h (hidden size)
+    # 이차 방정식 공식을 적용하여 h(히든 크기) 계산
     discriminant = B**2 - 4*A*C
     if discriminant < 0:
-        # Fallback in case the equation doesn't have a real solution
+        # 방정식에 실수 해가 없는 경우 대체 방법
         hidden_size = int(math.sqrt(params_billions * 1e9 / (num_layers * 16)))
     else:
-        # Solve using quadratic formula
+        # 이차 공식을 사용하여 계산
         hidden_size = int((-B + math.sqrt(discriminant)) / (2*A))
     
-    # Step 3: Ensure hidden_size is divisible by num_heads for clean head dimensions
+    # 3단계: 깨끗한 헤드 차원을 위해 hidden_size가 num_heads로 나누어지도록 함
     head_dim = max(64, hidden_size // num_heads)
     hidden_size = head_dim * num_heads
     
-    # Step 4: Calculate intermediate size based on hidden size
-    # Most modern models use a multiplier between 2.5-4×
-    # Llama-2 uses ~2.7×, Llama-3.2 uses ~2.75×, Mistral uses ~3.5×
+    # 4단계: hidden_size를 기반으로 intermediate_size 계산
+    # 대부분의 현대 모델은 2.5-4× 사이의 승수를 사용합니다
+    # Llama-2는 ~2.7×, Llama-3.2는 ~2.75×, Mistral은 ~3.5× 사용
     intermediate_size = int(hidden_size * 2.75)
     
     return {
@@ -383,7 +381,6 @@ def calculate_activation_memory(arch: Dict[str, int],
     # dtype 기반 바이트 단위 값
     bytes_per_value = DTYPE_SIZES[dtype]
     
-    # 레이어당 5개의 활성화 가정
     # hidden_size 활성화(쿼리, 키, 값, 어텐션 출력 등)의 경우
     # 일반적으로 레이어당 3개의 활성화가 hidden_size 사용
     hidden_activation_bytes = 3 * max_batch_size * max_seq_len * hidden_size * bytes_per_value
