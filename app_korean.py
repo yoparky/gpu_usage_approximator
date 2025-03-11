@@ -214,13 +214,72 @@ QUANTIZATION_FACTORS = {
 
 
 def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
-    """매개변수 수를 기반으로 모델 아키텍처 세부 정보를 추정합니다."""
-    # 일반적인 모델 아키텍처를 기반으로 한 근사 휴리스틱
-    num_layers = int(2 * math.log2(params_billions * 1e9 / 125)) + 8  # 레이어 수 추정
-    hidden_size = int(math.sqrt(params_billions * 1e9 / (num_layers * 4)))  # 히든 크기 추정
-    num_heads = max(8, hidden_size // 128)  # 헤드 수 추정
-    head_dim = hidden_size // num_heads  # 헤드 차원 계산
-    intermediate_size = hidden_size * 4  # FFN 중간 크기는 일반적으로 hidden_size의 4배
+    """
+    Estimate model architecture details based on parameter count using a more accurate
+    approach that combines range-based estimation with quadratic equation solving.
+    
+    This matches how models are actually designed in practice, producing more realistic
+    architecture parameters, especially for smaller models.
+    
+    Args:
+        params_billions: Model size in billions of parameters
+        
+    Returns:
+        Dictionary with estimated architecture details
+    """
+    # Step 1: Determine baseline architecture parameters based on model size ranges
+    # These values come from analyzing real-world model architectures
+    if params_billions < 3:
+        num_layers = 24
+        num_heads = 16
+        vocab = 32000
+    elif params_billions < 7:
+        num_layers = 26      # Appropriate for models like Llama-3.2-3B
+        num_heads = 24
+        vocab = 32000
+    elif params_billions < 10:
+        num_layers = 32
+        num_heads = 32
+        vocab = 32000
+    elif params_billions < 20:
+        num_layers = 40
+        num_heads = 40
+        vocab = 32000
+    elif params_billions < 50:
+        num_layers = 60
+        num_heads = 52
+        vocab = 32000
+    else:
+        num_layers = 80
+        num_heads = 64
+        vocab = 32000
+    
+    # Step 2: Solve quadratic equation to find the hidden dimension
+    # The equation models how parameters are distributed in transformer architectures:
+    # vocab*h*2 + numLayers*4*h*h + numLayers*3*4*h*h = params_billions*10^9
+    
+    # Rearrange to standard form: Ah² + Bh + C = 0
+    A = num_layers * 4 + num_layers * 12  # Coefficient of h²
+    B = 2 * vocab                        # Coefficient of h (input & output embeddings)
+    C = -1 * params_billions * 1e9       # Constant term
+    
+    # Apply quadratic formula to solve for h (hidden size)
+    discriminant = B**2 - 4*A*C
+    if discriminant < 0:
+        # Fallback in case the equation doesn't have a real solution
+        hidden_size = int(math.sqrt(params_billions * 1e9 / (num_layers * 16)))
+    else:
+        # Solve using quadratic formula
+        hidden_size = int((-B + math.sqrt(discriminant)) / (2*A))
+    
+    # Step 3: Ensure hidden_size is divisible by num_heads for clean head dimensions
+    head_dim = max(64, hidden_size // num_heads)
+    hidden_size = head_dim * num_heads
+    
+    # Step 4: Calculate intermediate size based on hidden size
+    # Most modern models use a multiplier between 2.5-4×
+    # Llama-2 uses ~2.7×, Llama-3.2 uses ~2.75×, Mistral uses ~3.5×
+    intermediate_size = int(hidden_size * 2.75)
     
     return {
         "num_layers": num_layers,
