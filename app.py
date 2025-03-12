@@ -31,6 +31,7 @@ class ModelRequest(BaseModel):
     params_billions: Optional[float] = None  # Optional override for parameter count
     params_millions: Optional[float] = None  # Optional override for parameter count in millions
     architecture: Optional[ModelArchitecture] = None  # Optional model architecture details
+    current_gpu_memory_size_gb: Optional[float] = None  # User's GPU memory size in GB
 
 class MemoryEstimation(BaseModel):
     model_name: str
@@ -45,7 +46,7 @@ class MemoryEstimation(BaseModel):
     warning: Optional[str] = None
     components_breakdown: Dict[str, float]
     architecture_used: Dict[str, int]  # The architecture values used in the calculation
-
+    recommended_gpu_memory_utilization: Optional[float] = None
 
 # Model parameter counts for common models (in billions)
 MODEL_PARAMS = {
@@ -640,6 +641,21 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     if recommended_memory_gb > 80:
         warning = "This model may require multiple GPUs or a high-end GPU with sufficient memory."
     
+    recommended_gpu_memory_utilization = None
+    if request.current_gpu_memory_size_gb:
+        if request.current_gpu_memory_size_gb <= 0:
+            raise HTTPException(status_code=400, detail="current_gpu_memory_size_gb must be positive")
+        
+        util_ratio = total_max_memory_gb / request.current_gpu_memory_size_gb
+        
+        if util_ratio > 1:
+            warning = "Model requires more memory than available on your GPU. Consider using a larger GPU, reducing batch size, or applying quantization."
+            recommended_gpu_memory_utilization = None
+        else:
+            # Round to a reasonable precision (e.g., 0.05 increments)
+            recommended_gpu_memory_utilization = round(util_ratio * 20) / 20
+            recommended_gpu_memory_utilization = min(recommended_gpu_memory_utilization, 0.95)  # Cap at 95%
+
     return MemoryEstimation(
         model_name=request.model_name,
         model_params_memory_gb=model_params_memory_gb,
@@ -650,6 +666,7 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
         total_min_memory_gb=total_min_memory_gb,
         total_max_memory_gb=total_max_memory_gb,
         recommended_memory_gb=recommended_memory_gb,
+        recommended_gpu_memory_utilization = recommended_gpu_memory_utilization,
         warning=warning,
         components_breakdown=components_breakdown,
         architecture_used=architecture
@@ -691,7 +708,8 @@ def read_root():
             "activation": "Memory for intermediate activations during inference",
             "kv_cache": "Memory for key-value cache (min and max with PagedAttention)",
             "cuda_overhead": "Memory for CUDA context and additional libraries"
-        }
+        },
+        "recommended_gpu_memory_utilization": None
     }
 
 
