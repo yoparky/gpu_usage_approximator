@@ -7,8 +7,7 @@ from typing import Dict, Optional
 app = FastAPI(title="vLLM GPU Memory Calculator API")
 # General equation:
 # total_memory = model_memory + activation_memory + kv_cache_memory + cuda_overhead
-# https://github.com/RahulSChand/gpu_poor 참조
-# TODO: VLLM 메모리 reserve해서 유용한 이유 추가
+# https://github.com/RahulSChand/gpu_poor: source for estimate_model_architecture function
 
 class ModelArchitecture(BaseModel):
     """Optional model architecture details if known by the user"""
@@ -182,8 +181,6 @@ MODEL_ARCHITECTURES = {
         "head_dim": 128,
         "intermediate_size": 28672
     },
-    # llama 계통 3
-    # Add Llama 3.2 family
     "meta-llama/Llama-3.2-1B": {
         "num_layers": 24,           # Based on typical architecture scaling
         "hidden_size": 2048,        # Based on typical architecture scaling
@@ -199,9 +196,7 @@ MODEL_ARCHITECTURES = {
         "intermediate_size": 8448   # Based on ~2.75x hidden_size ratio
     },
     
-    # openapi 계통
-    # Qwen 계통 1.5
-    # Gemma 계통
+    # TODO: openapi 계통, Qwen 계통 1.5, Gemma 계통
 
     # Mistral-7B
     "mistralai/Mistral-7B-v0.1": {
