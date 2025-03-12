@@ -190,8 +190,6 @@ MODEL_ARCHITECTURES = {
         "head_dim": 128,
         "intermediate_size": 14336
     }
-    
-    # 필요한 경우 더 많은 알려진 모델 아키텍처 추가
 }
 
 

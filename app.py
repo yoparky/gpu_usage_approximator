@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 import math
+import re
 from pydantic import BaseModel
 from typing import Dict, Optional
 
@@ -7,6 +8,7 @@ app = FastAPI(title="vLLM GPU Memory Calculator API")
 # General equation:
 # total_memory = model_memory + activation_memory + kv_cache_memory + cuda_overhead
 # https://github.com/RahulSChand/gpu_poor 참조
+# TODO: VLLM 메모리 reserve해서 유용한 이유 추가
 
 class ModelArchitecture(BaseModel):
     """Optional model architecture details if known by the user"""
@@ -27,8 +29,8 @@ class ModelRequest(BaseModel):
     gpu_memory_utilization: float = 0.9  # Default GPU memory utilization ratio
     quantization: Optional[str] = None  # Q4, Q8, or None for full precision
     params_billions: Optional[float] = None  # Optional override for parameter count
+    params_millions: Optional[float] = None  # Optional override for parameter count in millions
     architecture: Optional[ModelArchitecture] = None  # Optional model architecture details
-
 
 class MemoryEstimation(BaseModel):
     model_name: str
@@ -138,6 +140,19 @@ MODEL_PARAMS = {
     "Together/falcon-40b-instruct": 40,
     "openchat/openchat-3.5": 7,
     
+    # small (million parameter) models
+    "facebook/opt-125m": 0.125,
+    "facebook/opt-350m": 0.35,
+    "facebook/opt-1.3b": 1.3,
+    "EleutherAI/pythia-70m": 0.07,
+    "EleutherAI/pythia-160m": 0.16,
+    "EleutherAI/pythia-410m": 0.41,
+    "EleutherAI/pythia-1b": 1.0,
+    "EleutherAI/gpt-neo-125m": 0.125,
+    "microsoft/phi-1": 0.35,
+    "microsoft/phi-1.5": 1.3,
+    "tinyllama/TinyLlama-1.1B": 1.1,
+    
     # Default fallback
     "unknown": 0  # Will be estimated based on name or set by user
 }
@@ -167,7 +182,7 @@ MODEL_ARCHITECTURES = {
         "intermediate_size": 28672
     },
     # llama 계통 3
-    # Add Llama 3.2 family (new)
+    # Add Llama 3.2 family
     "meta-llama/Llama-3.2-1B": {
         "num_layers": 24,           # Based on typical architecture scaling
         "hidden_size": 2048,        # Based on typical architecture scaling
@@ -194,9 +209,30 @@ MODEL_ARCHITECTURES = {
         "num_heads": 32,
         "head_dim": 128,
         "intermediate_size": 14336
-    }
-    
-    # Add more known model architectures as needed
+    },
+
+    # Adding small models architectures
+    "facebook/opt-125m": {
+        "num_layers": 12,
+        "hidden_size": 768,
+        "num_heads": 12,
+        "head_dim": 64,
+        "intermediate_size": 3072
+    },
+    "facebook/opt-350m": {
+        "num_layers": 24,
+        "hidden_size": 1024,
+        "num_heads": 16,
+        "head_dim": 64,
+        "intermediate_size": 4096
+    },
+    "microsoft/phi-1": {
+        "num_layers": 24,
+        "hidden_size": 1024,
+        "num_heads": 16,
+        "head_dim": 64,
+        "intermediate_size": 4096
+    },
 }
 
 
@@ -226,7 +262,7 @@ def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
     architecture parameters, especially for smaller models.
     
     The approach to this estimation was based on 
-    # https://github.com/RahulSChand/gpu_poor
+    https://github.com/RahulSChand/gpu_poor
 
     Args:
         params_billions: Model size in billions of parameters
@@ -236,7 +272,20 @@ def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
     """
     # Step 1: Determine baseline architecture parameters based on model size ranges
     # These values come from analyzing real-world model architectures
-    if params_billions < 3:
+    # In the estimate_model_architecture function, add these cases at the beginning:
+    if params_billions < 0.2:  # For very small models (under 200M params)
+        num_layers = 12
+        num_heads = 8
+        vocab = 30000
+    elif params_billions < 0.5:  # For small models (under 500M params)
+        num_layers = 16
+        num_heads = 12
+        vocab = 30000
+    elif params_billions < 1:  # For models under 1B params
+        num_layers = 20
+        num_heads = 16
+        vocab = 30000
+    elif params_billions < 3:
         num_layers = 24
         num_heads = 16
         vocab = 32000
@@ -298,21 +347,41 @@ def estimate_model_architecture(params_billions: float) -> Dict[str, int]:
 
 
 def estimate_params_from_name(model_name: str) -> float:
-    """Estimate parameter count from model name if not in our database."""
-    # Try to find numbers in the model name (like 7b, 13b, etc.)
-    import re
-    numbers = re.findall(r'(\d+)b', model_name.lower())
-    if numbers:
+    """
+    Estimate parameter count from model name if not in our database.
+    Handles both billion (B, b) and million (M, m) parameter specifications.
+    """
+    # Try to find numbers followed by 'b' or 'B' for billions
+    billions_match = re.findall(r'(\d+\.?\d*)b', model_name.lower())
+    if billions_match:
         # Take the largest number followed by 'b' as parameter count in billions
-        return max([float(num) for num in numbers])
-    return 7  # Default to 7B if we can't determine
+        return max([float(num) for num in billions_match])
+    
+    # Try to find numbers followed by 'm' or 'M' for millions
+    millions_match = re.findall(r'(\d+\.?\d*)m', model_name.lower())
+    if millions_match:
+        # Convert millions to billions
+        max_millions = max([float(num) for num in millions_match])
+        return max_millions / 1000.0  # Convert millions to billions
+    
+    # If we can't determine, default to 7B
+    return 7.0
 
 
-def get_model_params_count(model_name: str, params_billions: Optional[float] = None) -> float:
-    """Get parameter count for a model in billions."""
-    # If user provided parameter count, use it
+def get_model_params_count(model_name: str, 
+                          params_billions: Optional[float] = None,
+                          params_millions: Optional[float] = None) -> float:
+    """
+    Get parameter count for a model in billions.
+    Accommodates both billion and million specifications.
+    """
+    # If user provided parameter count in billions, use it
     if params_billions is not None:
         return params_billions
+    
+    # If user provided parameter count in millions, convert to billions
+    if params_millions is not None:
+        return params_millions / 1000.0
     
     # Otherwise check our database
     if model_name in MODEL_PARAMS:
@@ -326,7 +395,6 @@ def get_model_params_count(model_name: str, params_billions: Optional[float] = N
     
     # If still not found, try to estimate from the name
     return estimate_params_from_name(model_name)
-
 
 def get_model_architecture(model_name: str, params_billions: float, 
                           user_arch: Optional[ModelArchitecture] = None) -> Dict[str, int]:
@@ -460,6 +528,10 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     3. KV cache memory (with PagedAttention)
     4. CUDA context and other overhead
     """
+    # Convert params_millions to params_billions if provided
+    if request.params_millions is not None and request.params_billions is None:
+        request.params_billions = request.params_millions / 1000.0
+    
     # Add at start of function
     if request.max_seq_len <= 0:
         raise HTTPException(status_code=400, detail="max_seq_len must be positive")
