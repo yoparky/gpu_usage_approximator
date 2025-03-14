@@ -3,6 +3,10 @@ import math
 import re
 from pydantic import BaseModel
 from typing import Dict, Optional
+from huggingface_hub import hf_hub_download
+import json
+import requests
+from functools import lru_cache
 
 app = FastAPI(title="vLLM GPU Memory Calculator API")
 # General equation:
@@ -23,7 +27,7 @@ class ModelRequest(BaseModel):
     max_seq_len: int
     dtype: str = "float16"  # Default to float16
     kv_cache_dtype: Optional[str] = None  # If None, will use the same as dtype
-    max_batch_size: int = 32
+    max_batch_size: int = 1
     max_model_len: Optional[int] = None  # If None, will use max_seq_len
     gpu_memory_utilization: float = 0.9  # Default GPU memory utilization ratio
     quantization: Optional[str] = None  # Q4, Q8, or None for full precision
@@ -392,19 +396,108 @@ def get_model_params_count(model_name: str,
     # If still not found, try to estimate from the name
     return estimate_params_from_name(model_name)
 
+@lru_cache(maxsize=100)
+def fetch_model_config_from_hf(model_name: str) -> Optional[Dict]:
+    """
+    Fetch model configuration from Hugging Face Hub.
+    Uses caching to avoid repeated requests for the same model.
+    
+    Args:
+        model_name: The name of the model on Hugging Face Hub
+        
+    Returns:
+        Dictionary containing model configuration or None if not found
+    """
+    try:
+        # First try to download config.json using the hub
+        try:
+            config_file = hf_hub_download(
+                repo_id=model_name,
+                filename="config.json",
+                repo_type="model"
+            )
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+            return config
+        except Exception as e:
+            # If download fails, try direct API request
+            api_url = f"https://huggingface.co/{model_name}/raw/main/config.json"
+            response = requests.get(api_url)
+            if response.status_code == 200:
+                return response.json()
+            return None
+    except Exception as e:
+        print(f"Error fetching config for {model_name}: {str(e)}")
+        return None
+
+def parse_hf_config_to_architecture(config: Dict) -> Dict[str, int]:
+    """
+    Parse Hugging Face config.json into our architecture format.
+    Handles different model architectures and their specific naming conventions.
+    
+    Args:
+        config: Dictionary containing model configuration from Hugging Face
+        
+    Returns:
+        Dictionary containing standardized architecture parameters
+    """
+    arch = {}
+    
+    # Common parameter mappings
+    param_mappings = {
+        "num_layers": ["num_layers", "n_layer", "num_hidden_layers", "n_layers"],
+        "hidden_size": ["hidden_size", "n_embd", "d_model"],
+        "num_heads": ["num_attention_heads", "n_head"],
+        "head_dim": ["head_dim"],
+        "intermediate_size": ["intermediate_size", "ffn_dim", "n_inner"]
+    }
+    
+    # Try to find each parameter using various possible keys
+    for our_key, possible_keys in param_mappings.items():
+        for key in possible_keys:
+            if key in config:
+                arch[our_key] = config[key]
+                break
+    
+    # Calculate head_dim if not directly provided
+    if "head_dim" not in arch and "hidden_size" in arch and "num_heads" in arch:
+        arch["head_dim"] = arch["hidden_size"] // arch["num_heads"]
+    
+    # Calculate intermediate_size if not found (using common ratios)
+    if "intermediate_size" not in arch and "hidden_size" in arch:
+        # Use model-specific ratios when known
+        if "model_type" in config:
+            model_type = config["model_type"].lower()
+            if "llama" in model_type:
+                arch["intermediate_size"] = int(arch["hidden_size"] * 2.75)  # Llama ratio
+            elif "mistral" in model_type:
+                arch["intermediate_size"] = int(arch["hidden_size"] * 3.5)   # Mistral ratio
+            else:
+                arch["intermediate_size"] = int(arch["hidden_size"] * 4)     # Default ratio
+        else:
+            arch["intermediate_size"] = int(arch["hidden_size"] * 4)
+    
+    return arch
+
 def get_model_architecture(model_name: str, params_billions: float, 
                           user_arch: Optional[ModelArchitecture] = None) -> Dict[str, int]:
     """
     Get model architecture details, with priority:
     1. User-provided values
-    2. Known architecture from database
-    3. Estimated values based on parameter count
+    2. Hugging Face config.json
+    3. Known architecture from database
+    4. Estimated values based on parameter count
     """
     # Start with estimated architecture
     arch = estimate_model_architecture(params_billions)
     
-    # Update with known architecture if available
-    if model_name in MODEL_ARCHITECTURES:
+    # Try to get architecture from Hugging Face config
+    hf_config = fetch_model_config_from_hf(model_name)
+    if hf_config:
+        hf_arch = parse_hf_config_to_architecture(hf_config)
+        arch.update(hf_arch)
+    # If not found in HF, use known architecture if available
+    elif model_name in MODEL_ARCHITECTURES:
         for key, value in MODEL_ARCHITECTURES[model_name].items():
             arch[key] = value
     
@@ -444,26 +537,31 @@ def calculate_activation_memory(arch: Dict[str, int],
                                max_seq_len: int, 
                                dtype: str) -> float:
     """
-    Calculate activation memory for inference.
-    This accounts for both hidden_size and intermediate_size activations.
+    Calculate activation memory for inference using the same method 
+    as the JavaScript implementation: calculating attention matrices and
+    hidden state activations.
     """
+    # Extract required architecture parameters
     num_layers = arch["num_layers"]
     hidden_size = arch["hidden_size"]
-    intermediate_size = arch["intermediate_size"]
+    num_heads = arch["num_heads"]
     
     # Bytes per value based on dtype
     bytes_per_value = DTYPE_SIZES[dtype]
-    # Assume 5 activations per layer
-    # For hidden_size activations (query, key, value, attention output, etc.)
-    # Typically 3 activations per layer use hidden_size
-    hidden_activation_bytes = 3 * max_batch_size * max_seq_len * hidden_size * bytes_per_value
     
-    # For intermediate_size activations (FFN intermediate outputs)
-    # Typically 2 activations per layer use intermediate_size
-    intermediate_activation_bytes = 2 * max_batch_size * max_seq_len * intermediate_size * bytes_per_value
+    # First term: linear scaling component for hidden states
+    # This accounts for intermediate activations during token processing
+    linear_component = max_seq_len * hidden_size * 5 * bytes_per_value
     
-    # Total activation memory across all layers
-    total_activation_bytes = num_layers * (hidden_activation_bytes + intermediate_activation_bytes)
+    # Second term: quadratic scaling component for attention matrices
+    # This accounts for the attention matrices that scale with sequence length^2
+    quadratic_component = max_seq_len * max_seq_len * num_heads * bytes_per_value
+    
+    # Total activation memory per batch (combining both components)
+    activation_per_batch = linear_component + quadratic_component
+    
+    # Scale by batch size and number of layers
+    total_activation_bytes = activation_per_batch * max_batch_size * num_layers
     
     # Convert to GB
     activation_memory_gb = total_activation_bytes / (1024**3)
@@ -491,25 +589,29 @@ def calculate_kv_cache_memory(arch: Dict[str, int],
     # In PagedAttention, memory is allocated in blocks
     # Each block typically holds 16 tokens for efficient memory management
     block_size = 16
+    if max_model_len > 8192:
+        block_size = 32
+    
     num_blocks_per_seq = math.ceil(max_model_len / block_size)
     
     # Key + Value cache per layer per token
     # vLLM only needs to store K and V, not Q (query) vectors
     kv_cache_per_token = 2 * hidden_size * bytes_per_token  # 2 for K and V
     
-    # Total KV cache size for minimum allocation (one block per sequence)
-    min_kv_cache_size_bytes = num_layers * max_batch_size * kv_cache_per_token * block_size
+    # Calculate KV cache for 20% of max sequence length
+    twenty_percent_seq_len = int(max_model_len * 0.2)
+    twenty_percent_seq_len_kv_cache_size_bytes = num_layers * max_batch_size * kv_cache_per_token * twenty_percent_seq_len
     
     # Total KV cache size for maximum allocation (all blocks per sequence)
     max_kv_cache_size_bytes = num_layers * max_batch_size * kv_cache_per_token * max_model_len
     
     # Convert to GB
-    min_kv_cache_size_gb = min_kv_cache_size_bytes / (1024**3)
+    twenty_percent_seq_len_kv_cache_memory_gb = twenty_percent_seq_len_kv_cache_size_bytes / (1024**3)
     max_kv_cache_size_gb = max_kv_cache_size_bytes / (1024**3)
     
     return {
-        "min_kv_cache_memory_gb": min_kv_cache_size_gb,
-        "max_kv_cache_memory_gb": max_kv_cache_size_gb
+        "twenty_percent_seq_len_kv_cache_memory_gb": twenty_percent_seq_len_kv_cache_memory_gb,
+        "max_seq_len_kv_cache_memory_gb": max_kv_cache_size_gb
     }
 
 
@@ -599,14 +701,14 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     total_min_memory_gb = (
         model_params_memory_gb + 
         activation_memory_gb + 
-        kv_cache_memory["min_kv_cache_memory_gb"] + 
+        kv_cache_memory["twenty_percent_seq_len_kv_cache_memory_gb"] + 
         cuda_overhead_gb
     )
     
     total_max_memory_gb = (
         model_params_memory_gb + 
         activation_memory_gb + 
-        kv_cache_memory["max_kv_cache_memory_gb"] + 
+        kv_cache_memory["max_seq_len_kv_cache_memory_gb"] + 
         cuda_overhead_gb
     )
     
@@ -616,8 +718,8 @@ def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     # Round values for better readability while preserving 2 decimal places for precision
     model_params_memory_gb = round(model_params_memory_gb, 2)
     activation_memory_gb = round(activation_memory_gb, 2)
-    min_kv_cache_memory_gb = round(kv_cache_memory["min_kv_cache_memory_gb"], 2)
-    max_kv_cache_memory_gb = round(kv_cache_memory["max_kv_cache_memory_gb"], 2)
+    min_kv_cache_memory_gb = round(kv_cache_memory["twenty_percent_seq_len_kv_cache_memory_gb"], 2)
+    max_kv_cache_memory_gb = round(kv_cache_memory["max_seq_len_kv_cache_memory_gb"], 2)
     total_min_memory_gb = round(total_min_memory_gb, 2)
     total_max_memory_gb = round(total_max_memory_gb, 2)
     recommended_memory_gb = round(recommended_memory_gb, 2)
@@ -683,20 +785,9 @@ def read_root():
         "info": "vLLM GPU Memory Calculator API",
         "usage": "POST to /estimate-gpu-memory with model details",
         "example_request": {
-            "model_name": "meta-llama/Llama-2-7b",
+            "model_name": "Qwen/Qwen-1.5-32B",
             "max_seq_len": 2048,
-            "dtype": "float16",
-            "max_batch_size": 32,
-            "gpu_memory_utilization": 0.9,
-            "quantization": None,  # Optional: "Q4" or "Q8" for quantized models
-            "params_billions": None,  # Optional: Override parameter count if known
-            "architecture": {  # Optional: Provide known architecture details
-                "num_layers": 32,
-                "hidden_size": 4096,
-                "num_heads": 32,
-                "head_dim": 128,
-                "intermediate_size": 11008
-            }
+            "dtype": "float16"
         },
         "memory_components": {
             "model_params": "Memory for model weights",
