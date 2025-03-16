@@ -413,31 +413,13 @@ def calculate_model_memory(model_name: str, dtype: str,
         "params_billions": params_billions,
         "model_size_gb": model_size_gb
     }
-
 def calculate_activation_memory_inference(
     arch: Dict[str, int],
     max_batch_size: int,
     max_seq_len: int,
     dtype: str
 ) -> float:
-    """
-    특히 vLLM 추론을 위한 활성화 메모리를 계산합니다.
-    이는 병렬 처리 고려 없이 단일 GPU에 대해 계산합니다.
-    
-    Args:
-        arch: 모델 아키텍처 매개변수를 포함하는 딕셔너리
-            - hidden_size: 모델의 숨겨진 차원 크기
-            - num_heads: 어텐션 헤드 수
-            - num_layers: 트랜스포머 레이어 수
-            - head_dim (선택적): 각 어텐션 헤드의 차원
-            - intermediate_size (선택적): 피드포워드 중간 레이어 크기
-        max_batch_size: 동시에 처리되는 최대 시퀀스 수
-        max_seq_len: 최대 시퀀스 길이
-        dtype: 계산에 사용되는 데이터 유형(예: "float16", "float32")
-        
-    Returns:
-        기가바이트 단위의 추정 활성화 메모리
-    """
+    """KV 캐시를 제외한 추론을 위한 활성화 메모리를 계산합니다."""
     # 아키텍처 매개변수 추출
     hidden_size = arch["hidden_size"]
     num_heads = arch["num_heads"]
@@ -445,62 +427,52 @@ def calculate_activation_memory_inference(
     head_dim = arch.get("head_dim", hidden_size // num_heads)
     intermediate_size = arch.get("intermediate_size", 4 * hidden_size)
     
-    # 바이트 단위의 데이터 유형 크기 정의
-    DTYPE_SIZES = {
-        "float16": 2,
-        "bfloat16": 2,
-        "float32": 4,
-        "int8": 1
-    }
     bytes_per_value = DTYPE_SIZES[dtype]
     
-    # 추론을 위해 KV 캐시는 주요 활성화 메모리 구성 요소입니다
-    # 각 레이어는 시퀀스의 각 토큰에 대해 K 및 V 텐서를 저장합니다
-    kv_cache_bytes = (
-        2 *  # K 및 V
-        max_batch_size *
-        max_seq_len *
-        num_layers *
-        num_heads *
-        head_dim *
-        bytes_per_value
-    )
+    # 두 단계에 대한 메모리 계산: 프리필과 생성
     
-    # 디코딩 중에도 현재 토큰에 대한 일부 활성화 메모리가 필요합니다
-    # 이에는 어텐션 계산 및 FFN 활성화가 포함됩니다
-    # 플래시 어텐션의 경우, 이는 긴 시퀀스에 대한 KV 캐시보다 훨씬 작습니다
+    # 프리필 단계 (프롬프트 처리)
+    # 이 단계는 한 번만 발생하지만 더 많은 메모리가 필요합니다
+    prefill_attn_scores = max_batch_size * num_heads * max_seq_len * max_seq_len * bytes_per_value
+    prefill_layer_output = max_batch_size * max_seq_len * hidden_size * bytes_per_value
+    prefill_ffn_intermediate = max_batch_size * max_seq_len * intermediate_size * bytes_per_value
     
-    # 현재 토큰에 대한 어텐션 활성화(모든 헤드에 대한 Q * K)
-    attn_act_bytes = (
-        max_batch_size *
-        1 *  # 새 토큰에 대해서만 계산
-        num_heads *
-        head_dim *
-        bytes_per_value
-    )
+    # 프리필 중 최대 활성화 (순차 처리로 인해 현재 레이어에 대해서만 저장 필요)
+    prefill_peak_per_layer = prefill_attn_scores + prefill_layer_output + prefill_ffn_intermediate
     
-    # FFN 활성화
-    ffn_act_bytes = (
-        max_batch_size *
-        1 *  # 새 토큰에 대해서만 계산
-        intermediate_size *
-        bytes_per_value
-    )
+    # 생성 단계 (토큰별)
+    # 현재 토큰에 대한 모든 이전 토큰과의 어텐션
+    gen_attn_scores = max_batch_size * num_heads * 1 * max_seq_len * bytes_per_value
+    gen_layer_output = max_batch_size * 1 * hidden_size * bytes_per_value
+    gen_ffn_intermediate = max_batch_size * 1 * intermediate_size * bytes_per_value
     
-    # 레이어 수로 곱하기
-    per_layer_act_bytes = attn_act_bytes + ffn_act_bytes
-    decode_act_bytes = per_layer_act_bytes * num_layers
+    # 생성 중 최대 활성화 (레이어당)
+    gen_peak_per_layer = gen_attn_scores + gen_layer_output + gen_ffn_intermediate
     
-    # 기타 활성화에 대한 작은 버퍼 추가(10%)
-    misc_buffer = 0.1 * (kv_cache_bytes + decode_act_bytes)
+    # 가장 큰 연산(일반적으로 프리필)에 대한 작업 공간 필요
+    peak_workspace_bytes = prefill_peak_per_layer
     
-    # 총 활성화 메모리
-    total_act_bytes = kv_cache_bytes + decode_act_bytes + misc_buffer
+    # 일부 메모리 최적화를 통해 레이어 활성화를 재사용할 수 있음
+    # 좋은 메모리 관리를 갖춘 vLLM의 경우 약 2개의 레이어에 대해 예약해야 함
+    effective_layers = 2  # 덜 최적화된 구현의 경우 더 높을 수 있음
     
-    # 기가바이트로 변환
-    total_act_gb = total_act_bytes / (1024**3) + 0.7 # 실측에서 나온 경험적 추가 오버헤드
+    # 활성화 메모리 - 프리필과 생성 요구 사항 중 최대값에
+    # 유효 레이어 수를 곱함
+    activation_bytes = max(prefill_peak_per_layer, gen_peak_per_layer) * effective_layers
     
-    return total_act_gb
+    # 다양한 연산에 대한 추가 작업 공간 (일반적으로 10-15%)
+    workspace_overhead = 0.15 * activation_bytes
+    
+    # 레이어 정규화, 임베딩 조회 등과 같은 특수 연산
+    misc_activations = max_batch_size * hidden_size * bytes_per_value * 5  # 다양한 연산에 대한 근사값
+    
+    total_activation_bytes = activation_bytes + workspace_overhead + misc_activations
+    
+    # 모델 크기에 따른 스케일링 팩터를 사용하여 GB로 변환 (큰 모델에는 더 많은 오버헤드가 필요함)
+    scaling_factor = 1.0 + (0.05 * (hidden_size / 1024))  # 더 큰 모델에 대한 오버헤드 증가
+    total_activation_gb = (total_activation_bytes / (1024**3)) * scaling_factor
+    
+    return total_activation_gb
 
 def calculate_kv_cache_memory(arch: Dict[str, int], 
                              max_seq_len: int, 
