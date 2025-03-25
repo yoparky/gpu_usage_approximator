@@ -1,7 +1,14 @@
 MODEL_ACTIVATION_RATIO: # 실측을 통해 바꾸어야 함
-  meta-llama/Llama-3.1-8B: 0.6
+  meta-llama/Llama-3.1-8B: 0.63
   meta-llama/Llama-3.1-70B: 1
   meta-llama/Llama-3.1-405B: 1
   meta-llama/Llama-3.1-800B: 1
   meta-llama/Llama-3.1-800B-Instruct: 1
   meta-llama/Llama-3.1-800B-Instruct: 1
+  google/gemma-2-27b-it: 0.65
+  # 모델_이름 : K
+
+  # 활성화 메모리 오차 개수
+  # 8192 max_seq_len 기준 다른 항목 기본값으로 계산,
+  # 실측 로그 상 max pytorch activation memory = k * 예측 활성화 메모리
+  # K 를 구하여 본 파일에 추가. 안전하게 0.02정도 더하는 것 추천.

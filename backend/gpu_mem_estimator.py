@@ -122,14 +122,52 @@ def calculate_per_gpu_memory(
 @app.post("/estimate-gpu-memory", response_model=MemoryEstimation)
 def estimate_gpu_memory(request: ModelRequest) -> MemoryEstimation:
     """
-    vLLM으로 특정 모델 서빙을 위한 GPU 메모리 사용량을 추정합니다.
-    게이티드 모델(예: Llama)의 경우 유효한 Hugging Face 토큰이 필요할 수 있습니다.
-    
-    다음 사항을 고려합니다:
-    1. 모델 매개변수 메모리
-    2. 추론을 위한 활성화 메모리
-    3. KV 캐시 메모리(PagedAttention 사용)
-    4. CUDA 컨텍스트 및 기타 오버헤드
+    <   소개    >\n
+    vLLM으로 특정 모델 서빙을 위한 GPU 메모리 사용량을 추정합니다.\n
+    게이티드 모델(예: Llama)의 경우 유효한 Hugging Face 토큰이 필요할 수 있습니다.\n
+    필수 항목은 model_name, current_gpu_memory_size_gb
+    입니다. 허깅페이스 모델의 이름을 복사 한 후 해당 벨류값으로 보내면\n
+    모델의 Config 파일을 읽어와 값들을 계산에 사용합니다.\n
+    \n
+    Config 파일에 포함이 되지 않았거나 부정확한 내용이 있을 수 있습니다. 이때는 해당 키의 벨류\n
+    값으로 덮어쓰고자 하는 값을 보내면 요청에서 보낸 값을 계산에 사용합니다.\n
+    \n
+    token은 검색하는 모델이 gated model일 경우 해당 모델의 깃에 접근하기 위해 넣는 허가받은 토큰
+    입니다.\n
+    num_key_value_heads는 GQA 방식을 사용하는 모델들의 실질 헤드 수 입니다 (그룹의 수).\n
+    currrent_gpu_memory_size_gb는 현재 사용하는 GPU의 메모리 총량입니다.\n
+    curr_gpu_use는 현재 사용하는 GPU에서 다른 프로그램이 사용하고 있는 메모리의 GB 양입니다.\n
+    (예시: RTX 4090이 모델을 로드 하기전에 다른 프로그램으로 10GB 사용하고 있으면 10)
+    \n
+    호환되는 dtype값과 quantization 값은 backend/data에서 찾을 수 있는 YAML 파일에서 추가가
+    가능합니다.\n
+    현재 호환되는 String들은:\n
+    dtype, kv_cache_type: [float32, float16, bfloat16, int8, int4, int1]\n
+    quantization: [int8, int4, int1] \n
+    입니다.\n
+    \n
+    \n<   계산 방식   >\n
+    총 메모리 계산은 다음 4가지 사항을 합산합니다:\n
+    1. 모델 매개변수 메모리\n
+    2. 추론을 위한 활성화 메모리\n
+    3. KV 캐시 메모리(PagedAttention 사용)\n
+    4. CUDA 컨텍스트 및 기타 오버헤드\n
+    \n
+    \n<   활성화 메모리 오차 조율   >\n
+    1, 3번 항목은 오차가 적고 4번은 모델에 따라 다르지만 차이가 적습니다.\n
+    2번 항목이 모델에 따라 크게 바뀌어 모델마다 실측을 진행, CalculateActivation의 결과에서\n
+    모델에 특징적인 개수를 곱해주고 있습니다. 개수들은 다음과 같은 실험을 통해 구해집니다:\n
+    해당 모델을 8192토큰의 max_model_size, 나머지 기본값을 기준으로 실측과 API예측을 합니다.\n
+    K * API예측 활성화 메모리 값 = 실측 활성화 메모리 값이 되도록 K값을 구하고,\n
+    구한 K값을 activation_defines.yaml에 넣어줍니다. 이 과정을 거치면 해당 모델에 대한 정확한
+    예측을 할 수 있습니다.\n
+
+    실측 조율 완료 모델:
+    [Qwen/Qwen2.5-1.5B-Instruct, Qwen/Qwen2.5-3B, meta-llama/Llama-3.2-1B-Instruct, 
+    meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.1-8B, google/gemma-2-27b-it]
+    \n\n<   Response   >\n
+    https://www.notion.so/agilesoda/vLLM-GPU-API-Schema-1bf9f036b307803a8cafd8d36df62aef\n
+    https://docs.google.com/document/d/1RJnL9T1Nhd2XynrUY8d5hBRwzXOMUkYNGecufrLATuk/edit?tab=t.0\n
     """
     estimated_values = []
     missing_values = []
