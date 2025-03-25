@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AutoComplete } from 'primereact/autocomplete';
+import { API_URL } from '../config';
 
 const GpuAutosuggestSearch = ({ onGpuSelect }) => {
     const [selectedGPU, setSelectedGPU] = useState(null);
@@ -8,18 +9,18 @@ const GpuAutosuggestSearch = ({ onGpuSelect }) => {
 
     useEffect(() => {
         const fetchGpus = async () => {
-            try {
-                const response = await fetch('http://localhost:8000/get_gpu_catalog');
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                const data = await response.json();
-                const gpuArray = Object.values(data);
-                setGpus(gpuArray);
-            } catch (error) {
-                console.error('Error fetching GPU catalog:', error);
-                setGpus([]); // 카탈로그 비었을 때 디폴트, 필요에 따라 수정 
+          try {
+            const response = await fetch(`${API_URL}/get_gpu_catalog`);
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
             }
+            const data = await response.json();
+            const gpuArray = Object.values(data);
+            setGpus(gpuArray);
+          } catch (error) {
+            console.error('Error fetching GPU catalog:', error);
+            setGpus([]); // Default when catalog is empty
+          }
         };
 
         fetchGpus();

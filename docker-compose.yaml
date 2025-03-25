@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vllm_calculator_frontend
+    ports:
+      - "3000:3000"  # Maps server port 3000 to container port 3000
+    volumes:
+      - vllm_calc_frontend_volume:/app/data
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://localhost:3001  # For browser-based API calls
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - vllm_calculator_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vllm_calculator_backend
+    ports:
+      - "3001:8000"  # Maps server port 3001 to container port 8000
+    volumes:
+      - vllm_calc_backend_volume:/app/data
+      - ./backend:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - vllm_calculator_network
+
+networks:
+  vllm_calculator_network:
+    driver: bridge
+
+volumes:
+  vllm_calc_frontend_volume:
+    name: vllm_calc_frontend_volume
+    driver: local
+  vllm_calc_backend_volume:
+    name: vllm_calc_backend_volume
+    driver: local

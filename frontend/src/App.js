@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { AlertCircle, HelpCircle, ChevronDown, ChevronUp, Server, Brain, MessageSquare, Zap, Settings, ThumbsUp, HardDrive, Bot } from 'lucide-react';        
 import GpuAutosuggestSearch from './modules/GpuAutosuggestSearch';
+import { API_URL } from './config';
 
 const VLLMMemoryCalculator = () => {
   const [loading, setLoading] = useState(false);
@@ -133,7 +134,7 @@ const VLLMMemoryCalculator = () => {
       console.log("Request payload:", JSON.stringify(payload, null, 2));
       
       setTimeout(async () => {
-        const response = await fetch('http://localhost:8000/estimate-gpu-memory', {
+        const response = await fetch(`${API_URL}/estimate-gpu-memory`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
