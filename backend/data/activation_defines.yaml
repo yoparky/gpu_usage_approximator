@@ -1,0 +1,7 @@
+MODEL_ACTIVATION_RATIO: # 실측을 통해 바꾸어야 함
+  meta-llama/Llama-3.1-8B: 0.6
+  meta-llama/Llama-3.1-70B: 1
+  meta-llama/Llama-3.1-405B: 1
+  meta-llama/Llama-3.1-800B: 1
+  meta-llama/Llama-3.1-800B-Instruct: 1
+  meta-llama/Llama-3.1-800B-Instruct: 1

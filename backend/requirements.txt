@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pydantic
+pyyaml
+huggingface-hub>=0.20.0
+requests>=2.31.0
