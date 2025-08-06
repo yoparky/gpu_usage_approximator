@@ -206,7 +206,7 @@ Expand the Advanced Options section to configure:
 
 ## ⚠️ Limitations
 
-- Calculations are **estimates** and may vary from actual usage due to implementation-specific optimizations
+- Calculations are **estimates** and may vary from actual usage due to model or implementation-specific optimizations
 - Designed specifically for **transformer-based models** - accuracy may vary for other architectures
 - Based on **vLLM v0.7.3** - results may differ with other vLLM versions
 - Does not account for dynamic memory allocation patterns during runtime
