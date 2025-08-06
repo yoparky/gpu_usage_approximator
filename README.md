@@ -211,13 +211,6 @@ Expand the Advanced Options section to configure:
 - Based on **vLLM v0.7.3** - results may differ with other vLLM versions
 - Does not account for dynamic memory allocation patterns during runtime
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues and pull requests.
-
-## 📝 License
-
-[Add your license information here]
 
 ## 🙏 Acknowledgments
 
