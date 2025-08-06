@@ -4,7 +4,7 @@ import { AlertCircle, HelpCircle, ChevronDown, ChevronUp, Server, Brain, Message
 import GpuAutosuggestSearch from './modules/GpuAutosuggestSearch';
 // import { API_URL } from './config';
 
-const API_URL = "http://210.116.106.101:3001"
+const API_URL = "http://localhost:3001"
 
 const VLLMMemoryCalculator = () => {
   const [loading, setLoading] = useState(false);
