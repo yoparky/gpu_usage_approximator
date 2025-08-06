@@ -5,13 +5,13 @@ services:
       dockerfile: Dockerfile
     container_name: vllm_calculator_frontend
     ports:
-      - "3003:3000"  # Maps host port 3003 to container port 3000
+      - "3000:3000"  # Maps server port 3000 to container port 3000
     volumes:
       - vllm_calc_frontend_volume:/app/data
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - REACT_APP_API_URL=http://localhost:3002  # Point to the backend's exposed host port
+      - REACT_APP_API_URL=http://localhost:3001  # For browser-based API calls
     depends_on:
       - backend
     restart: unless-stopped
@@ -24,19 +24,23 @@ services:
       dockerfile: Dockerfile
     container_name: vllm_calculator_backend
     ports:
-      - "3002:8000"  # Maps host port 3002 to container port 8000
+      - "3001:8000"  # Maps server port 3001 to container port 8000
     volumes:
       - vllm_calc_backend_volume:/app/data
       - ./backend:/app
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health || exit 1"] # Checks inside the container
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     networks:
       - vllm_calculator_network
+    environment:
+    - PYTHONIOENCODING=utf-8
+    - LANG=C.UTF-8
+    - LC_ALL=C.UTF-8
 
 networks:
   vllm_calculator_network:

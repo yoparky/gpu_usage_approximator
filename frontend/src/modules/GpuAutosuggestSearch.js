@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AutoComplete } from 'primereact/autocomplete';
-import { API_URL } from '../config';
+// import { API_URL } from '../config';
+
+const API_URL = "http://210.116.106.101:3001"
 
 const GpuAutosuggestSearch = ({ onGpuSelect }) => {
     const [selectedGPU, setSelectedGPU] = useState(null);

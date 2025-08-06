@@ -24,7 +24,8 @@ app = FastAPI(title="vLLM GPU 메모리 계산기 API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    # allow_origins=["http://localhost:3000", "http://210.116.106.101:3000", "https://210.116.106.101:3000", "http://210.116.106.101", "https://210.116.106.101"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

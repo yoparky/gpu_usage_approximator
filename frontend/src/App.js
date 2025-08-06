@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { AlertCircle, HelpCircle, ChevronDown, ChevronUp, Server, Brain, MessageSquare, Zap, Settings, ThumbsUp, HardDrive, Bot } from 'lucide-react';        
 import GpuAutosuggestSearch from './modules/GpuAutosuggestSearch';
-import { API_URL } from './config';
+// import { API_URL } from './config';
+
+const API_URL = "http://210.116.106.101:3001"
 
 const VLLMMemoryCalculator = () => {
   const [loading, setLoading] = useState(false);
